@@ -1,0 +1,24 @@
+{
+  "name": "ua-cryptography-typescript",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Verification of Ukrainian qualified electronic signatures (PrivatBank CAdES, Diia ASiC-E) and CAdES signing with a JKS key — in one offline HTML page",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "watch": "node build.mjs --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "node tests/run.mjs",
+    "test:browser": "node tests/app.mjs",
+    "check": "npm run typecheck && npm test && npm run build && npm run test:browser"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "esbuild": "^0.25.12",
+    "typescript": "^5.9.3"
+  }
+}

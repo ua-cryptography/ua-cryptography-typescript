@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- before -->
+<?pi-before data?>
+<a:root xmlns:a="urn:a" xmlns:b="urn:b" xmlns="urn:default" xmlns:unused="urn:unused" b:attr="1" plain="x">
+  <child xmlns:c="urn:c" z="1" a:y="2" b:x="3" c:w="4"   >text &amp; more &lt; &gt; "quotes" 'apos'</child>
+  <b:inner xmlns="">
+    <noNamespace attr="  spaced
+value	tab"/>
+    <deep xmlns="urn:other"><deeper/></deep>
+  </b:inner>
+  <![CDATA[cdata <&> section]]>
+  <empty></empty>
+  <selfClosed/>
+  <?inner-pi some data ?>
+  <!-- inner comment -->
+  <refs>&#13;&#x9;&#65;&#x10437;</refs>
+  <x xml:lang="uk" xml:space="preserve" a:k="v"/>
+</a:root>
+<!-- after -->

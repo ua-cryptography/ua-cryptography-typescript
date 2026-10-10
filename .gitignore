@@ -1,0 +1,19 @@
+CLAUDE.md
+.claude/
+
+# Build output and dependencies
+build/
+node_modules/
+shots/
+
+# Private key material and real signed documents must never be committed:
+# the tests use synthetic keys and public CA certificates only.
+private/
+*.jks
+*.pfx
+*.p12
+# ...except the synthetic test keys (tests/data/synthetic/README.md)
+!tests/data/synthetic/*.jks
+
+# OS
+.DS_Store

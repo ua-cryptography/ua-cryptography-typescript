@@ -1,0 +1,3 @@
+<r a="1&#10;2&#xD;3">line1
+line2&#xD;
+ <e b='single "quoted"'/></r>

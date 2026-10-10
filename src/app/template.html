@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Nothing leaves the page but one kind of request: a time-stamp from PrivatBank's TSP server, when a signature is made
+     and the user asks for it (src/app/timestamp.ts). No other fetch, no images or fonts from elsewhere, no forms posting
+     out. The one inline script is pinned by its hash at build time; blob: is for saving files. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; connect-src https://acsk.privatbank.ua; form-action 'none'; base-uri 'none'">
+<meta name="referrer" content="no-referrer">
+<title>Ukrainian e-signature — verify and sign</title>
+<link rel="icon" href="__ICON__">
+<style>/*__STYLES__*/</style>
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <img src="__ICON__" alt="" width="32" height="32">
+    <div>
+      <h1>Ukrainian e-signature</h1>
+      <p class="tagline">DSTU 4145 · PrivatBank <code>.sig</code> · «Дія» <code>.asice</code> · works offline</p>
+    </div>
+  </div>
+  <nav class="tabs" role="tablist">
+    <button type="button" role="tab" id="tab-verify" aria-selected="true" data-view="verify">Verify</button>
+    <button type="button" role="tab" id="tab-sign" aria-selected="false" data-view="sign">Sign</button>
+    <button type="button" role="tab" id="tab-trust" aria-selected="false" data-view="trust">Certificates</button>
+  </nav>
+</header>
+
+<main>
+  <!-- Verify -->
+  <section id="view-verify" class="view" role="tabpanel">
+    <div id="verify-drop" class="drop" tabindex="0">
+      <p class="drop-title">Drop a signed file here</p>
+      <p class="drop-hint">
+        <code>.sig</code> / <code>.p7s</code> (CAdES), <code>.asice</code> / <code>.asics</code> (ASiC), <code>.xml</code> (XAdES).
+        For a detached signature, drop the signed file together with it.
+      </p>
+      <button type="button" class="button" id="verify-pick">Choose files…</button>
+      <input type="file" id="verify-input" multiple hidden>
+    </div>
+    <div id="verify-result" aria-live="polite"></div>
+    <details class="note">
+      <summary>What is checked here, and what is not</summary>
+      <ul>
+        <li><b>Checked:</b> the DSTU 4145 signature and that it covers the document; the signer's certificate named in the
+          signed attributes; the qualified time-stamp; the certificate path up to a trusted root (ЦЗО, НБУ or one you add)
+          with validity periods; OCSP responses <i>embedded</i> in the signature.</li>
+        <li><b>Not checked:</b> the <i>current</i> revocation status of certificates. That needs the OCSP servers of the
+          providers, and verification never connects anywhere. A PrivatBank <code>.sig</code> carries no revocation data at
+          all; a «Дія» <code>.asice</code> carries the status of the signer's certificate at signing time. Such gaps are
+          shown as warnings.</li>
+        <li>Everything happens in this page: files are not uploaded.</li>
+      </ul>
+    </details>
+  </section>
+
+  <!-- Sign -->
+  <section id="view-sign" class="view" role="tabpanel" hidden>
+    <div class="card">
+      <h2><span class="step">1</span> Key</h2>
+      <form id="key-form" class="key-form" autocomplete="off">
+        <label class="file-field">
+          <span>Key store (<code>.jks</code>)</span>
+          <input type="file" id="key-file" accept=".jks,.JKS">
+        </label>
+        <label>
+          <span>Password</span>
+          <input type="password" id="key-password" autocomplete="off" spellcheck="false">
+        </label>
+        <button type="submit" class="button button--primary" id="key-open">Open key</button>
+      </form>
+      <div id="key-info" hidden></div>
+    </div>
+
+    <div class="card" id="sign-card">
+      <h2><span class="step">2</span> Document</h2>
+      <div id="sign-drop" class="drop drop--small" tabindex="0">
+        <p class="drop-title" id="sign-file-name">Drop the document to sign, or</p>
+        <button type="button" class="button" id="sign-pick">Choose a file…</button>
+        <input type="file" id="sign-input" hidden>
+      </div>
+      <div class="options">
+        <label class="option-wide"><input type="checkbox" id="sign-timestamp" disabled> <span id="sign-timestamp-label">Qualified time-stamp (CAdES-T) — open a key first</span></label>
+        <label><input type="checkbox" id="sign-detached"> Detached signature (<code>.p7s</code> without the document inside)</label>
+        <label>Hash
+          <select id="sign-hash">
+            <option value="1.2.804.2.1.1.1.1.2.2.1" selected>DSTU 7564-256 (Kupyna)</option>
+            <option value="1.2.804.2.1.1.1.1.2.1">GOST 34.311-95</option>
+          </select>
+        </label>
+      </div>
+      <button type="button" class="button button--primary" id="sign-run" disabled>Sign</button>
+      <p class="hint">
+        The result has PrivatBank's layout — CAdES with the document inside, saved as <code>.sig</code>. With the
+        time-stamp it is <b>CAdES-T</b>, as the bank makes it: the page sends <i>only the hash of the signature</i> to the
+        bank's time-stamping server (the one request this page may make; the document and the key never leave it).
+        Without it, <b>CAdES-B</b>, made entirely offline.
+      </p>
+      <div id="sign-result" aria-live="polite"></div>
+    </div>
+  </section>
+
+  <!-- Trusted certificates -->
+  <section id="view-trust" class="view" role="tabpanel" hidden>
+    <div class="card">
+      <h2>Add certificates</h2>
+      <p class="hint">DER or PEM <code>.cer</code> / <code>.crt</code>, or a bundle <code>.p7b</code>. Added certificates are kept in this browser
+        (local storage) for this page.</p>
+      <div class="add-grid">
+        <div id="add-root" class="drop drop--small" tabindex="0">
+          <p class="drop-title">Trusted root</p>
+          <p class="drop-hint">Only add a root you have checked yourself.</p>
+          <button type="button" class="button" id="add-root-pick">Choose…</button>
+          <input type="file" id="add-root-input" multiple hidden accept=".cer,.crt,.der,.pem,.p7b,.p7c">
+        </div>
+        <div id="add-intermediate" class="drop drop--small" tabindex="0">
+          <p class="drop-title">Intermediate</p>
+          <p class="drop-hint">A provider's CA, TSP or OCSP certificates.</p>
+          <button type="button" class="button" id="add-intermediate-pick">Choose…</button>
+          <input type="file" id="add-intermediate-input" multiple hidden accept=".cer,.crt,.der,.pem,.p7b,.p7c">
+        </div>
+      </div>
+      <div id="trust-message" aria-live="polite"></div>
+    </div>
+    <div class="card">
+      <h2>Trusted roots</h2>
+      <p class="hint">A signature is trusted when its certificate path ends at one of these.</p>
+      <ul id="trust-roots" class="cert-list"></ul>
+    </div>
+    <div class="card">
+      <h2>Intermediate certificates</h2>
+      <p class="hint">Used to complete paths and to find time-stamping services that a signature does not carry (a PrivatBank
+        <code>.sig</code> has neither its CA's nor its TSP server's certificate).</p>
+      <details class="all-checks">
+        <summary id="trust-intermediates-count">Show the list</summary>
+        <ul id="trust-intermediates" class="cert-list"></ul>
+      </details>
+    </div>
+  </section>
+</main>
+
+<footer class="bottom">
+  <span>Version __VERSION__</span>
+  <span>Offline, except a time-stamp request to acsk.privatbank.ua when you sign with one.</span>
+</footer>
+
+<script>/*__APP__*/</script>
+</body>
+</html>
