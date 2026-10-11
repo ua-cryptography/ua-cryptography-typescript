@@ -11,6 +11,10 @@ the PKI layer), limited to the two formats providers hand out:
 | CAdES-T, data inside | `.sig` | PrivatBank | verified |
 | ASiC-E with a detached XAdES-B-LT | `.asice` | «Дія.Підпис» | verified |
 
+**Open the page:** <https://ua-cryptography.github.io/ua-cryptography-typescript/> — or download the single file from
+the [latest release](https://github.com/ua-cryptography/ua-cryptography-typescript/releases/latest) and open it from
+disk.
+
 The verifier recognises the same family around them as well — CAdES B/T/X Long enveloped or detached (`.p7s`), ASiC-S,
 XAdES as a separate `.xml` — with DSTU 7564-256 or GOST 34.311 and DSTU 4145 keys in the polynomial basis.
 
@@ -27,6 +31,11 @@ first run; `./build.sh --watch` rebuilds on every change). Open the file in a br
   ticked by default: the signature is then CAdES-T, as the bank makes it; unticked, CAdES-B made offline.
 - **Certificates** — the trusted roots and intermediate certificates the page relies on. Drop more certificates (DER,
   PEM or a `.p7b` bundle) to add them; they are kept in the browser's local storage.
+
+The page is also published on GitHub Pages from `main`
+(<https://ua-cryptography.github.io/ua-cryptography-typescript/>), and every release carries the same single file,
+`ua-signature-v<version>.html`, with its SHA-256 in `SHA256SUMS.txt`. A release is made by `npm version x.y.z` and
+pushing the tag: the workflow refuses a tag that is not package.json's version.
 
 Built in (`assets/certificates`, all public): the ЦЗО roots (2027, 2030, 2035 with GOST 34.311; 2036 with DSTU 7564) and
 the NBU root of 2036 as trusted roots; the «Дія» CA, the PrivatBank CA, and the bundle PrivatBank publishes at its
@@ -88,6 +97,7 @@ results as `ua-sign verify`.
 ## Layout
 
 ```text
+.github/workflows/        tests on every push; GitHub Pages from main; a release with the single file for a v* tag
 build.sh                  installs the dependencies on the first run and builds the page
 build.mjs                 the single HTML file: esbuild, inlined styles and certificates, CSP pinned to the script's hash
 src/core/                 no DOM; runs the same in the page and in Node

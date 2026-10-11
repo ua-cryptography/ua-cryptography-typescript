@@ -1,0 +1,29 @@
+name: test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      # build.mjs itself refuses external references and any connect-src but PrivatBank's TSP server.
+      - run: npm run build
+      # ubuntu-latest ships Chrome at /usr/bin/google-chrome, where tools/chrome.mjs looks.
+      - run: npm run test:browser
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ua-signature
+          path: build/ua-signature.html
+          if-no-files-found: error
