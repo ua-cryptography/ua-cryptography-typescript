@@ -1,6 +1,6 @@
 {
   "name": "ua-cryptography-typescript",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "Verification of Ukrainian qualified electronic signatures (PrivatBank CAdES, Diia ASiC-E) and CAdES signing with a JKS key — in one offline HTML page",
   "license": "MIT",

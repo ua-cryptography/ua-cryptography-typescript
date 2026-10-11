@@ -4,8 +4,8 @@
  * tampered document is rejected; a key store opens (and a wrong password is refused), a document is signed and the
  * new signature verifies. The online revocation check is ticked by default and the choice survives a reload. With the
  * real signatures and key on this machine, the PrivatBank .sig and the «Дія» .asice verify against the bundled roots, and
- * the bank's key signs — with a real time-stamp and the signer's online status only when UA_ONLINE=1. The page may
- * reach PrivatBank's servers and nothing else. No exceptions, console errors or CSP violations allowed.
+ * the bank's key signs — with a real time-stamp and online statuses only when UA_ONLINE=1. The page may reach the
+ * servers of PrivatBank and the NBU and nothing else. No exceptions, console errors or CSP violations allowed.
  *
  * Needs `npm run build` first and a local Chrome (or CHROME=/path/to/chrome); skipped without Chrome.
  * `--shots DIR` saves screenshots of the screens.
@@ -136,7 +136,7 @@ try {
     // Without UA_ONLINE the test stays off the network: the online check is unticked (for this page load only).
     if (!online) await evaluate('document.getElementById("verify-online").checked = false');
     const [pbVerdict, pbFailed] = await verify(join(PRIVATE, 'pb', 'valid', 'tosign.txt.sig'));
-    check('PrivatBank .sig: valid, warnings only for revocation', [pbVerdict, pbFailed], ['warn', []]);
+    check(`PrivatBank .sig: valid, ${online ? 'no warnings' : 'warnings only for revocation'}`, [pbVerdict, pbFailed], [online ? 'ok' : 'warn', []]);
     const signerRevocation = await evaluate(`[...document.querySelectorAll('#verify-result .signature details.all-checks .checks li')].filter((li) => /^signer: revocation of /.test(li.querySelector('.name').textContent)).map((li) => li.className + ' ' + li.querySelector('.details').textContent.replace(/ of '.*/, ''))[0]`);
     check(`PrivatBank .sig: the signer's status ${online ? 'online' : 'not checked'}`, signerRevocation, online ? 'passed good, online response' : 'warning no OCSP response in the signature; the current status was not checked online');
     if (online) check('PrivatBank .sig: no notice of a failed online check', await evaluate('document.querySelector("#verify-result .notice strong")?.textContent ?? null'), null);
@@ -171,7 +171,7 @@ try {
   check('no horizontal scroll at the phone width', SHOTS ? overflow : true, true);
 
   check('no page errors', browser.errors, []);
-  // The policy lets the page reach PrivatBank's time-stamping server and nothing else.
+  // The policy lets the page reach the servers of PrivatBank and the NBU and nothing else.
   check('any other address is blocked', await evaluate('fetch("https://example.com/").then(() => "reached", () => "blocked")'), 'blocked');
   check('no CSP violations but that one', await evaluate('window.__violations'), ['connect-src https://example.com/']);
   check('the console reports only that refusal', browser.errors.every((e) => e.includes('https://example.com/')), true);

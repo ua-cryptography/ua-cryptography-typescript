@@ -1,9 +1,10 @@
 /**
- * The page's network exception, against the real services: PrivatBank's time-stamping and OCSP servers. Runs only with
- * UA_ONLINE=1 (it needs the network and sends requests to the bank). A synthetic hash is stamped and the token verified
- * with the bundled certificates; the OCSP server answers about a public certificate. With the real signatures on this
- * machine, a PrivatBank .sig is verified with the online status of its signer, as the page does it; with the real key
- * store, a CAdES-T is made the way the page makes it, verified here and — when available — by ua-sign.
+ * The page's network exceptions, against the real services: PrivatBank's time-stamping and OCSP servers, the NBU's
+ * OCSP server. Runs only with UA_ONLINE=1 (it needs the network and sends requests to them). A synthetic hash is stamped
+ * and the token verified with the bundled certificates; the NBU's OCSP server answers about PrivatBank's CA and TSP
+ * server. With the real signatures on this machine, a PrivatBank .sig is verified with the online status of every
+ * certificate on its paths, as the page does it; with the real key store, a CAdES-T is made the way the page makes it,
+ * verified here and — when available — by ua-sign.
  */
 import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync } from 'node:fs';
@@ -14,7 +15,7 @@ import { bundledCertificates, hasPrivate, PRIVATE } from '../tools/fixtures.mjs'
 import { checker, load, root } from '../tools/load.mjs';
 
 if (process.env.UA_ONLINE !== '1') {
-  console.log('online: set UA_ONLINE=1 to ask PrivatBank\'s time-stamping and OCSP servers — skipped');
+  console.log('online: set UA_ONLINE=1 to ask the time-stamping and OCSP servers of PrivatBank and the NBU — skipped');
   process.exit(0);
 }
 
@@ -33,22 +34,28 @@ const tsa = token.verify(stamped, extra, report, 'time-stamp');
 check('signed by the bank\'s TSP server', [tsa?.subject.get(P.Oid.SerialNumber), report.checks.every((c) => c.status === 'passed')], ['UA-14360570-2611', true]);
 
 // ---- OCSP --------------------------------------------------------------------------------------------------------------
-const OCSP_URL = 'https://acsk.privatbank.ua/services/ocsp/';
 {
-  // The TSP server's certificate is public; its status lives at the NBU (its AIA says so), and the bank's responder
-  // answers "unknown" — which is why the page asks only the responder a certificate names.
+  // Public certificates: the bank's CMP server names the bank's responder; the bank's CA and TSP server name the NBU's
+  // (both are certified by the NBU root directly). Each is asked at the responder its AIA names, as the page does.
   const bank = (serial) => extra.find((c) => c.subject.get(P.Oid.SerialNumber) === serial && c.shortName.includes('ПриватБанк'));
-  const tspCertificate = bank('UA-14360570-2611');
-  const ca = bank('UA-14360570-2610');
-  check('the TSP server\'s certificate names the NBU\'s responder, not the bank\'s', P.ocspUrl(tspCertificate), null);
-  const response = await P.requestOcsp(OCSP_URL, tspCertificate, ca);
-  const responder = response.findResponder([...extra, ca]);
-  check('the responder answers (nonce echoed), signed by its OCSP server, certified by the CA', [
-    response.find(tspCertificate, ca)?.status,
-    responder?.subject.get(P.Oid.SerialNumber),
-    response.isSignedBy(responder),
-    responder.isSignedBy(ca) && responder.extendedKeyUsage.includes(P.Oid.KeyPurposeOcspSigning),
-  ], ['unknown', 'UA-14360570-2613', true, true]);
+  const issuerOf = (c) => [...anchors, ...extra].find((i) => !i.equals(c) && c.isSignedBy(i));
+  for (const [what, serial, url, responderName] of [
+    ['the bank\'s CMP server', 'UA-14360570-2612', 'https://acsk.privatbank.ua/services/ocsp/', 'OCSP-сервер КНЕДП АЦСК АТ КБ "ПриватБанк"'],
+    ['the bank\'s CA', 'UA-14360570-2610', 'https://zc.bank.gov.ua/services/ocsp/', 'OCSP-сервер Засвідчувальний центр'],
+    ['the bank\'s TSP server', 'UA-14360570-2611', 'https://zc.bank.gov.ua/services/ocsp/', 'OCSP-сервер Засвідчувальний центр'],
+  ]) {
+    const certificate = bank(serial);
+    const issuer = issuerOf(certificate);
+    check(`${what}: names ${new URL(url).host}, asked over HTTPS`, P.ocspUrl(certificate), url);
+    const response = await P.requestOcsp(url, certificate, issuer);
+    const responder = response.findResponder([...extra, issuer]);
+    check(`${what}: good (nonce echoed), signed by a responder the issuer certified`, [
+      response.find(certificate, issuer)?.status,
+      responder?.shortName,
+      response.isSignedBy(responder),
+      responder.equals(issuer) || (responder.isSignedBy(issuer) && responder.extendedKeyUsage.includes(P.Oid.KeyPurposeOcspSigning)),
+    ], ['good', responderName, true, true]);
+  }
 }
 if (!hasPrivate) {
   console.log('online: no real signatures on this machine — the .sig with an online status is skipped');
@@ -57,17 +64,18 @@ if (!hasPrivate) {
   const options = { trustAnchors: anchors, extraCertificates: extra };
   const offline = await P.verifySignature(sig, () => null, options);
   const targets = offline.unresolvedRevocations.filter((t) => P.ocspUrl(t.certificate));
-  const signerCertificate = offline.signatures[0].signer;
-  check('PrivatBank .sig: only the signer\'s certificate names the bank\'s responder', targets.map((t) => t.certificate.equals(signerCertificate)), [true]);
+  check('PrivatBank .sig: every unresolved certificate names a responder the page may ask', targets.length, offline.unresolvedRevocations.length);
+  check('PrivatBank .sig: the signer at the bank, its CA and the TSP server at the NBU', targets.map((t) => `${t.certificate.shortName} @ ${new URL(P.ocspUrl(t.certificate)).host}`).sort(), [
+    `${offline.signatures[0].signer.shortName} @ acsk.privatbank.ua`,
+    'TSP-сервер КНЕДП АЦСК АТ КБ "ПриватБанк" @ zc.bank.gov.ua',
+    'КНЕДП АЦСК АТ КБ "ПриватБанк" @ zc.bank.gov.ua',
+  ].sort());
   const responses = await Promise.all(targets.map((t) => P.requestOcsp(P.ocspUrl(t.certificate), t.certificate, t.issuer)));
-  const result = await P.verifySignature(sig, () => null, { ...options, onlineRevocation: responses });
+  const result = await P.verifySignature(sig, () => null, { ...options, onlineRevocation: responses, onlineAsked: targets.map((t) => t.certificate) });
   const s = result.signatures[0];
-  const revocation = s.checks.find((c) => c.name === `signer: revocation of '${s.signer.shortName}'`);
-  check('PrivatBank .sig: the signer is good, by an online response', [result.isValid, revocation.status, /^good, online response of 'OCSP-сервер КНЕДП АЦСК АТ КБ "ПриватБанк"'/.test(revocation.details)], [true, 'passed', true]);
-  check('PrivatBank .sig: left as warnings — the CA and the TSP server, whose responder is the NBU\'s', s.checks.filter((c) => c.status !== 'passed').map((c) => c.name), [
-    `signature time-stamp service: revocation of 'TSP-сервер КНЕДП АЦСК АТ КБ "ПриватБанк"'`,
-    `signer: revocation of 'КНЕДП АЦСК АТ КБ "ПриватБанк"'`,
-  ]);
+  const revocations = s.checks.filter((c) => c.name.includes(': revocation of '));
+  check('PrivatBank .sig: valid with no warnings', [result.isValid, s.hasWarnings, s.checks.filter((c) => c.status !== 'passed').map((c) => c.name)], [true, false, []]);
+  check('PrivatBank .sig: three statuses, all good by online responses', revocations.map((c) => /^good, online response of /.test(c.details)), [true, true, true]);
 }
 
 const passwordFile = process.env.UA_PRIVATE_JKS_PASSWORD_FILE ?? join(PRIVATE, 'pb', 'temp.txt');

@@ -132,10 +132,15 @@ export type ValidationOptions = {
   /** Certificates that may complete chains and find time-stamping services (CA bundles kept locally). */
   readonly extraCertificates: readonly Certificate[];
   /**
-   * OCSP responses the caller obtained online for this verification (the page asks PrivatBank's responder), used for
-   * certificates the signature carries no response about. Undefined when no online check was made.
+   * OCSP responses the caller obtained online for this verification (the page asks the responders of PrivatBank and the
+   * NBU), used for certificates the signature carries no response about. Undefined when no online check was made.
    */
   readonly onlineRevocation?: readonly OcspResponse[];
+  /**
+   * The certificates the online check asked about, so that a warning tells "asked, no answer" from "not asked". When
+   * undefined with `onlineRevocation` given, every certificate counts as asked.
+   */
+  readonly onlineAsked?: readonly Certificate[];
   /** "Now", when a signature carries no time (tests). */
   readonly now?: Date;
 };

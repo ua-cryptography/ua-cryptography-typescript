@@ -107,7 +107,8 @@ function testResponder({ status = 'good', revokedAt = null, signer = { key: caKe
 }
 
 check('the leaf names PrivatBank\'s responder, asked over HTTPS', P.ocspUrl(leaf), 'https://acsk.privatbank.ua/services/ocsp/');
-check('a certificate naming no PrivatBank responder is not asked', [P.ocspUrl(ca), P.ocspUrl(issue({ serial: 3, subject: name('x'), issuer: caName, spki: leafKey.certificate.spki, issuerKey: caKey, ocsp: 'http://ocsp.example.com/' }))], [null, null]);
+check('the NBU\'s responder is asked too, over HTTPS', P.ocspUrl(issue({ serial: 5, subject: name('y'), issuer: caName, spki: leafKey.certificate.spki, issuerKey: caKey, ocsp: 'http://zc.bank.gov.ua/services/ocsp/' })), 'https://zc.bank.gov.ua/services/ocsp/');
+check('a certificate naming no responder of PrivatBank or the NBU is not asked', [P.ocspUrl(ca), ...['http://ocsp.example.com/', 'http://czo.gov.ua/services/ocsp/', 'http://bank.gov.ua.example.com/'].map((ocsp) => P.ocspUrl(issue({ serial: 3, subject: name('x'), issuer: caName, spki: leafKey.certificate.spki, issuerKey: caKey, ocsp })))], [null, null, null, null]);
 {
   const responderOfTest = testResponder();
   const response = await responderOfTest.ask();
@@ -173,6 +174,10 @@ check('unknown to the responder: failed', checkOf(await withOnline(testResponder
 {
   const result = await P.verifySignature(signature, () => null, { ...options, onlineRevocation: [] });
   check('online check made, no answer: the warning says so', [checkOf(result).status, checkOf(result).details], ['warning', 'no OCSP response in the signature, and none from the online check']);
+  const asked = await P.verifySignature(signature, () => null, { ...options, onlineRevocation: [], onlineAsked: [leaf] });
+  check('asked online, no answer: the same warning', checkOf(asked).details, 'no OCSP response in the signature, and none from the online check');
+  const notAsked = await P.verifySignature(signature, () => null, { ...options, onlineRevocation: [], onlineAsked: [] });
+  check('online check made, this one not asked: the warning says why', [checkOf(notAsked).status, checkOf(notAsked).details], ['warning', 'no OCSP response in the signature; the online check does not reach the OCSP server it names']);
 }
 
 done('revocation');

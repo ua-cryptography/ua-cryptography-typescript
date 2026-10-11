@@ -17,7 +17,7 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
-      # build.mjs itself refuses external references and any connect-src but PrivatBank's TSP server.
+      # build.mjs itself refuses external references and any connect-src but the servers of PrivatBank and the NBU.
       - run: npm run build
       # ubuntu-latest ships Chrome at /usr/bin/google-chrome, where tools/chrome.mjs looks.
       - run: npm run test:browser

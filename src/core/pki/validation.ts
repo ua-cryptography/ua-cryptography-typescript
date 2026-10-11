@@ -96,7 +96,7 @@ export function validatePath(
   }
 
   // Revocation of every certificate below the top of the path (the top has no issuer to ask).
-  for (let i = 0; i + 1 < chain.length; i++) checkRevocation(chain[i]!, chain[i + 1]!, revocation, options.onlineRevocation, poolList, time, report, name);
+  for (let i = 0; i + 1 < chain.length; i++) checkRevocation(chain[i]!, chain[i + 1]!, revocation, options, poolList, time, report, name);
   return chain;
 }
 
@@ -109,7 +109,7 @@ function checkRevocation(
   certificate: Certificate,
   issuer: Certificate,
   embedded: readonly OcspResponse[],
-  online: readonly OcspResponse[] | undefined,
+  { onlineRevocation: online, onlineAsked }: ValidationOptions,
   pool: readonly Certificate[],
   time: Date,
   report: VerificationReport,
@@ -125,9 +125,14 @@ function checkRevocation(
   };
   const found = find(embedded, false) ?? find(online ?? [], true);
   if (!found) {
+    const asked = online !== undefined && (onlineAsked?.some((c) => c.equals(certificate)) ?? true);
     report.warn(
       check,
-      online ? 'no OCSP response in the signature, and none from the online check' : 'no OCSP response in the signature; the current status was not checked online',
+      asked
+        ? 'no OCSP response in the signature, and none from the online check'
+        : online
+          ? 'no OCSP response in the signature; the online check does not reach the OCSP server it names'
+          : 'no OCSP response in the signature; the current status was not checked online',
     );
     return;
   }

@@ -3,8 +3,9 @@
  * certificates (assets/certificates) are inlined, so the page opens from a file:// URL and works offline, with no
  * sibling files.
  *
- * The page's Content-Security-Policy allows requests to one origin only, PrivatBank's (connect-src
- * https://acsk.privatbank.ua): a time-stamp when a signature is made, a certificate's status when one is verified. Its
+ * The page's Content-Security-Policy allows requests to two origins only, PrivatBank's and the NBU's (connect-src
+ * https://acsk.privatbank.ua https://zc.bank.gov.ua): a time-stamp from PrivatBank when a signature is made, a
+ * certificate's status from the OCSP server it names when one is verified. Its
  * only script is pinned by hash: the page shows names from certificates and files, and a hash keeps any markup that
  * might slip into them from running.
  *
@@ -97,10 +98,11 @@ function assertSelfContained(html) {
     [/url\(\s*["']?https?:/i, 'url(http…)'],
   ];
   for (const [pattern, name] of offenders) if (pattern.test(html)) throw new Error(`An external reference is left in the file: ${name}`);
-  // The one network exception: PrivatBank's TSP and OCSP servers (src/app/network.ts). Nothing else may be added here
-  // without a decision of the owner.
+  // The network exceptions: PrivatBank's TSP and OCSP servers, the NBU's OCSP server (src/app/network.ts). Nothing else
+  // may be added here without a decision of the owner.
+  const allowed = 'https://acsk.privatbank.ua https://zc.bank.gov.ua';
   const connect = /http-equiv="Content-Security-Policy" content="[^"]*connect-src ([^;"]*)/.exec(html)?.[1]?.trim();
-  if (connect !== 'https://acsk.privatbank.ua') throw new Error(`The Content-Security-Policy must have connect-src https://acsk.privatbank.ua and nothing else, not ${connect}`);
+  if (connect !== allowed) throw new Error(`The Content-Security-Policy must have connect-src ${allowed} and nothing else, not ${connect}`);
 }
 
 /** script-src 'unsafe-inline' → the hash of the one inline script: the page's own code runs, injected handlers do not. */

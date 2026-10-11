@@ -3,11 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<!-- Nothing leaves the page but requests to PrivatBank's servers (src/app/network.ts): a time-stamp when a signature is
-     made with the time-stamp ticked, and the status of a PrivatBank certificate when a signature is verified with the
-     online check ticked. No other fetch, no images or fonts from elsewhere, no forms posting out. The one inline script
+<!-- Nothing leaves the page but requests to the servers of PrivatBank and the NBU (src/app/network.ts): a time-stamp
+     from PrivatBank when a signature is made with the time-stamp ticked, and the status of a certificate from the OCSP
+     server it names, PrivatBank's or the NBU's, when a signature is verified with the online check ticked. No other fetch, no images or fonts from elsewhere, no forms posting out. The one inline script
      is pinned by its hash at build time; blob: is for saving files. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; connect-src https://acsk.privatbank.ua; form-action 'none'; base-uri 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; connect-src https://acsk.privatbank.ua https://zc.bank.gov.ua; form-action 'none'; base-uri 'none'">
 <meta name="referrer" content="no-referrer">
 <title>Ukrainian e-signature — verify and sign</title>
 <link rel="icon" href="__ICON__">
@@ -43,8 +43,8 @@
     </div>
     <div class="options">
       <label class="option-wide"><input type="checkbox" id="verify-online" checked> <span>Check the current revocation status of
-        PrivatBank's certificates online, at <code>acsk.privatbank.ua</code> — sends the certificate's serial number, nothing of the
-        signature or the document</span></label>
+        certificates online, at <code>acsk.privatbank.ua</code> and <code>zc.bank.gov.ua</code> (NBU) — sends the certificate's
+        serial number, nothing of the signature or the document</span></label>
     </div>
     <div id="verify-result" aria-live="polite"></div>
     <details class="note">
@@ -53,11 +53,12 @@
         <li><b>Checked:</b> the DSTU 4145 signature and that it covers the document; the signer's certificate named in the
           signed attributes; the qualified time-stamp; the certificate path up to a trusted root (ЦЗО, НБУ or one you add)
           with validity periods; OCSP responses <i>embedded</i> in the signature.</li>
-        <li><b>Online, when ticked:</b> the current status of certificates issued by PrivatBank's CA (the signer's and the
-          time-stamping server's), from the bank's OCSP server. The request names the certificate by its serial number and
-          its issuer; the signature and the document are not sent. The response is checked like an embedded one.</li>
-        <li><b>Not checked:</b> the current status of other certificates — PrivatBank's CA itself, «Дія» and other
-          providers: their OCSP servers are elsewhere, and the page connects to PrivatBank only. A PrivatBank
+        <li><b>Online, when ticked:</b> the current status of the certificates whose OCSP server is PrivatBank's (the
+          signer's) or the NBU's (PrivatBank's CA and time-stamping server), from that server. The request names the
+          certificate by its serial number and its issuer; the signature and the document are not sent. The response is
+          checked like an embedded one.</li>
+        <li><b>Not checked:</b> the current status of other certificates — «Дія» and other providers: their OCSP servers
+          (the ЦЗО's among them) are elsewhere, and the page connects to PrivatBank and the NBU only. A PrivatBank
           <code>.sig</code> carries no revocation data at all; a «Дія» <code>.asice</code> carries the status of the
           signer's certificate at signing time. Such gaps are shown as warnings.</li>
         <li>Everything else happens in this page: files are not uploaded.</li>
@@ -152,7 +153,7 @@
 
 <footer class="bottom">
   <span>Version __VERSION__</span>
-  <span>Offline, except requests to acsk.privatbank.ua: a time-stamp when you sign, a certificate status when you verify.</span>
+  <span>Offline, except requests to acsk.privatbank.ua and zc.bank.gov.ua: a time-stamp when you sign, certificate statuses when you verify.</span>
 </footer>
 
 <script>/*__APP__*/</script>

@@ -1,9 +1,9 @@
 # UA e-signature in one HTML page
 
 Verification of Ukrainian qualified electronic signatures, and CAdES signing with a JKS key, in TypeScript — built into
-**one self-contained HTML file** that works from disk. The page talks to one server only, PrivatBank's, and only for two
-things: the qualified time-stamp when signing, and the current status of PrivatBank's certificates when verifying (both
-can be turned off). A port of the verifier of
+**one self-contained HTML file** that works from disk. The page talks to two servers only, PrivatBank's and the NBU's,
+and only for two things: the qualified time-stamp when signing (PrivatBank), and the current status of certificates when
+verifying (the OCSP server a certificate names, if it is one of these two). Both can be turned off. A port of the verifier of
 [ua-cryptography-csharp](https://github.com/ua-cryptography/ua-cryptography-csharp) (DSTU 4145, DSTU 7564, GOST 34.311,
 the PKI layer), limited to the two formats providers hand out:
 
@@ -27,7 +27,7 @@ first run; `./build.sh --watch` rebuilds on every change). Open the file in a br
 - **Verify** — drop a signed file; for a detached signature drop the signed document together with it. The page shows
   the signer, the signing and time-stamp times, the certificate paths, every check made, and offers the signed document
   for saving. With the online check ticked (the default; the choice is remembered), the current status of certificates
-  that name PrivatBank's OCSP server is asked there.
+  that name the OCSP server of PrivatBank or the NBU is asked there.
 - **Sign** — open the `.jks` key store the bank issued with its password, drop a document, sign. The result is saved as
   `<document>.sig` (or a detached `.p7s`) and verified on the spot. With a PrivatBank key the qualified time-stamp is
   ticked by default: the signature is then CAdES-T, as the bank makes it; unticked, CAdES-B made offline.
@@ -45,10 +45,11 @@ certificates' caIssuers address (`PB-2026-NBU.p7b`: its CAs, TSP and OCSP server
 a PrivatBank `.sig` carries neither its CA's certificate nor the TSP server's, so without it the time-stamp cannot be
 checked and the path does not reach the root.
 
-## Network: one exception
+## Network: two exceptions
 
-The page's Content-Security-Policy allows exactly one origin, `connect-src https://acsk.privatbank.ua` (the build
-refuses any other value), and its one script is pinned by hash. Two requests go there:
+The page's Content-Security-Policy allows exactly two origins,
+`connect-src https://acsk.privatbank.ua https://zc.bank.gov.ua` (the build refuses any other value), and its one script
+is pinned by hash. Two kinds of request go there:
 
 - **The time-stamp at signing.** A PrivatBank signature is CAdES-T: it carries a qualified time-stamp over the signature
   value from the bank's TSP server. The signer's certificate names that server (`http://acsk.privatbank.ua/services/tsp/`);
@@ -57,23 +58,25 @@ refuses any other value), and its one script is pinned by hash. Two requests go 
   nonce: the document, its hash and the key never leave the page. The answer is checked (status, imprint, nonce) before
   it goes into the signature, and the new signature is verified on the spot. For certificates of other providers the
   option is not offered. Unticked, nothing is sent and the result is CAdES-B.
-- **The certificate status at verification.** A PrivatBank `.sig` carries no revocation data, so the page asks the
-  bank's OCSP server (`https://acsk.privatbank.ua/services/ocsp/`, CORS allowed) about every certificate on the paths
-  that has no response in the signature and names that server in its authorityInfoAccess — in practice the signer's.
-  The request is an RFC 6960 OCSPRequest: the certificate's serial number, SHA-1 hashes of its issuer's name and key,
-  and a nonce; the signature and the document are not sent, but the bank learns whose certificate is being checked. The
-  answer must be successful, echo the nonce and speak of that certificate; then it is checked like an embedded one
-  (signed by the issuer or a responder it certified for OCSP) and reported as an *online response*. It tells the status
-  *now*: a certificate revoked after the signing time leaves the signature valid. A request that fails is shown above
-  the result, and the certificate keeps its warning. Unticked, nothing is sent.
+- **The certificate status at verification.** A PrivatBank `.sig` carries no revocation data, so the page asks about
+  every certificate on the paths that has no response in the signature, at the OCSP server its authorityInfoAccess
+  names, when that is PrivatBank's (`https://acsk.privatbank.ua/services/ocsp/`: the signer's certificate) or the NBU's
+  (`https://zc.bank.gov.ua/services/ocsp/`: PrivatBank's CA and its TSP server, both certified by the NBU root). Both
+  servers allow any origin (CORS) and answer over HTTPS. With all three answered, a PrivatBank `.sig` verifies with no
+  warnings. The request is an RFC 6960 OCSPRequest: the certificate's serial number, SHA-1 hashes of its issuer's name
+  and key, and a nonce; the signature and the document are not sent, but the bank learns whose certificate is being
+  checked (the NBU is asked about the bank's own certificates only). The answer must be successful, echo the nonce and
+  speak of that certificate; then it is checked like an embedded one (signed by the issuer or a responder it certified
+  for OCSP) and reported as an *online response*. It tells the status *now*: a certificate revoked after the signing
+  time leaves the signature valid. A request that fails is shown above the result, and the certificate keeps its
+  warning. Unticked, nothing is sent.
 
 Everything else stays offline:
 
-- **Other certificates' current status is not checked.** PrivatBank's CA and its TSP server name the NBU's OCSP
-  server (`zc.bank.gov.ua`; asked about the TSP server, the bank's own answers "unknown"), «Дія» and other providers
-  have their own: the page does not reach them. OCSP responses *embedded* in a signature are verified (signature, responder
-  authorization, status); a certificate without one gets a warning. A «Дія» `.asice` has the status of the signer's
-  certificate at signing time, but not of its CA or TSP server.
+- **Other certificates' current status is not checked.** «Дія» and other providers name other OCSP servers (the ЦЗО's
+  `czo.gov.ua` among them): the page does not reach them, and their warning says so. OCSP responses *embedded* in a
+  signature are verified (signature, responder authorization, status); a certificate without one gets a warning. A «Дія»
+  `.asice` has the status of the signer's certificate at signing time, but not of its CA or TSP server.
 - **CRLs are not used.** The addresses in PrivatBank's certificates (`/crl/…`, `/crldelta/…`) answer 403, and the
   page has no CRL parser.
 - **Missing CA certificates are not downloaded** from the caIssuers addresses; add them on the Certificates tab.
@@ -98,16 +101,17 @@ containers (`Key-6.dat`, `.ZS2`) and PKCS#12, archive time-stamps, certificate p
   every format, tampered in several ways; signatures made here, checked field by field against PrivatBank's profile
   and verified by `ua-sign` too when it is available (`UA_SIGN=/path/to/ua-sign`); CAdES-T against a time-stamping
   service of the test itself, and responses with a wrong imprint, nonce or status refused.
-- `tests/revocation.mjs` — the OCSP request field by field; a synthetic CA, a certificate naming PrivatBank's OCSP
-  server and a responder of the test: good, revoked before and after the signing time, unknown, a responder without
+- `tests/revocation.mjs` — the OCSP request field by field; which responders are asked (PrivatBank's and the NBU's
+  only); a synthetic CA, a certificate naming PrivatBank's OCSP server and a responder of the test: good, revoked before and after the signing time, unknown, a responder without
   authority; answers with a wrong or missing nonce, about another certificate, with an error status or HTTP error
-  refused.
+  refused; the warning tells "asked, no answer" from "not asked".
 - `tests/online.mjs` — only with `UA_ONLINE=1`: PrivatBank's real time-stamping server, a token verified with the
-  bundled certificates; its real OCSP server about a public certificate; and, when the machine has them, a PrivatBank
-  `.sig` verified with its signer's online status and a CAdES-T with the bank's key.
+  bundled certificates; the real OCSP servers of the bank and the NBU about the bank's public certificates; and, when
+  the machine has them, a PrivatBank `.sig` verified with the online status of every certificate on its paths (no
+  warnings left) and a CAdES-T with the bank's key.
 - `tests/app.mjs` — the built page: verification, adding a root, signing, the time-stamp and online-status options, no
-  errors; any address but PrivatBank's is blocked by the policy (`--shots DIR` saves screenshots; `UA_ONLINE=1` asks the
-  bank's servers for real).
+  errors; any address but those of PrivatBank and the NBU is blocked by the policy (`--shots DIR` saves screenshots;
+  `UA_ONLINE=1` asks their servers for real).
 
 Real signatures and keys carry personal data and are never committed. When a machine has them
 (`UA_PRIVATE_SAMPLES`, by default `../ua-cryptography-csharp/private`), the tests also verify a real PrivatBank `.sig`,

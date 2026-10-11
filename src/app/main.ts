@@ -6,7 +6,7 @@ import { requestOcsp } from '../core/pki/ocsp';
 import type { VerificationResult } from '../core/pki/report';
 import { verifySignature } from '../core/pki/verifier';
 import { busy, failure, notice, renderResult, verdict } from './report-view';
-import { ocspUrl, PRIVATBANK_ORIGIN, timeStampUrl } from './network';
+import { ocspUrl, timeStampUrl } from './network';
 import { parseCertificateFiles, TrustStore, type Role } from './trust';
 import { byId, download, errorText, fileDrop, formatDay, h, nextFrame, readFile } from './ui';
 
@@ -51,9 +51,9 @@ onlineBox.addEventListener('change', () => {
 });
 
 /**
- * Verifies offline; then, when the online check is on, asks PrivatBank's OCSP responder about the certificates whose
- * status the signature does not carry and that name that responder, and verifies again with the answers. Requests that
- * fail are returned as messages: those certificates keep their warning.
+ * Verifies offline; then, when the online check is on, asks the OCSP responders of PrivatBank and the NBU about the
+ * certificates whose status the signature does not carry and that name one of them, and verifies again with the
+ * answers. Requests that fail are returned as messages: those certificates keep their warning.
  */
 async function verifyWithOnlineStatus(
   signature: Uint8Array,
@@ -68,11 +68,12 @@ async function verifyWithOnlineStatus(
     return url ? [{ certificate, issuer, url }] : [];
   });
   if (targets.length === 0) return { result: offline, failures: [] };
-  await progress(`Asking ${new URL(PRIVATBANK_ORIGIN).host} for the revocation status…`);
+  const hosts = [...new Set(targets.map((t) => new URL(t.url).host))];
+  await progress(`Asking ${hosts.join(' and ')} for the revocation status…`);
   const settled = await Promise.allSettled(targets.map((t) => requestOcsp(t.url, t.certificate, t.issuer)));
   const responses = settled.flatMap((s) => (s.status === 'fulfilled' ? [s.value] : []));
   const failures = settled.flatMap((s, i) => (s.status === 'rejected' ? [`'${targets[i]!.certificate.shortName}': ${errorText(s.reason)}`] : []));
-  const result = await verifySignature(signature, detached, { ...options, onlineRevocation: responses });
+  const result = await verifySignature(signature, detached, { ...options, onlineRevocation: responses, onlineAsked: targets.map((t) => t.certificate) });
   return { result, failures };
 }
 
