@@ -1,7 +1,8 @@
-import { equal } from '../bytes';
+import { equal, plain } from '../bytes';
 import { sha1 } from '../hash/sha';
+import { randomBytes } from '../random';
 import { hash, isSupportedHash } from './algorithms';
-import { Asn1, Tag } from './asn1';
+import { Asn1, Der, Tag } from './asn1';
 import { Certificate } from './certificate';
 import { DistinguishedName } from './name';
 import { Oid } from './oids';
@@ -54,6 +55,8 @@ export class OcspResponse {
   readonly signatureAlgorithm: string;
   readonly signatureValue: Uint8Array;
   readonly certificates: readonly Certificate[];
+  /** The extnValue of the nonce extension (an OCTET STRING with the nonce, as requests carry it), when present. */
+  readonly nonce: Uint8Array | null = null;
 
   private constructor(readonly basicEncoded: Uint8Array) {
     const node = Asn1.parse(basicEncoded).expect(Tag.Sequence);
@@ -68,7 +71,12 @@ export class OcspResponse {
     if (responder.isContext(1)) this.responderName = DistinguishedName.fromAsn1(responder.at(0));
     else if (responder.isContext(2)) this.responderKeyHash = responder.at(0).octetString();
     this.producedAt = tbs.at(i++).time();
-    this.responses = tbs.at(i).children.map(parseSingle);
+    this.responses = tbs.at(i++).children.map(parseSingle);
+    // responseExtensions [1] EXPLICIT Extensions
+    if (i < tbs.count && tbs.at(i).isContext(1)) {
+      const nonce = tbs.at(i).at(0).children.find((e) => e.at(0).oid() === Oid.OcspNonce);
+      if (nonce) this.nonce = nonce.at(nonce.count - 1).octetString();
+    }
   }
 
   /** A full OCSPResponse; throws unless its status is successful and it holds a basic response. */
@@ -137,4 +145,45 @@ function parseSingle(single: Asn1): OcspSingleResponse {
     next,
     revoked,
   );
+}
+
+// ---- The OCSP protocol over HTTP (RFC 6960, 4.1 and appendix A) -------------------------------------------------------
+
+export const OCSP_REQUEST_TYPE = 'application/ocsp-request';
+
+/**
+ * OCSPRequest ::= SEQUENCE { tbsRequest SEQUENCE { requestList SEQUENCE OF Request { reqCert CertID },
+ * requestExtensions [2] EXPLICIT Extensions } }: one certificate, named by SHA-1 hashes of its issuer's name and key
+ * and its serial number (what responders take from any client), and a nonce. Nothing else about the signature is sent.
+ */
+export function createOcspRequest(certificate: Certificate, issuer: Certificate, nonce: Uint8Array): Uint8Array {
+  const certId = Der.sequence(
+    Der.sequence(Der.objectIdentifier(Oid.Sha1), Der.null()),
+    Der.octetString(sha1(issuer.subject.encoded)),
+    Der.octetString(sha1(issuer.publicKeyBits)),
+    Der.integer(certificate.serialNumber),
+  );
+  const nonceExtension = Der.sequence(Der.objectIdentifier(Oid.OcspNonce), Der.octetString(Der.octetString(nonce)));
+  return Der.sequence(Der.sequence(Der.sequence(Der.sequence(certId)), Der.explicit(2, Der.sequence(nonceExtension))));
+}
+
+/**
+ * Asks the responder at `url` about `certificate` (an HTTP POST of the DER request). The answer must be successful,
+ * echo the nonce and speak of this certificate; its signature and the responder's authority are checked where it is
+ * used, as for an embedded response (validation.ts).
+ */
+export async function requestOcsp(url: string, certificate: Certificate, issuer: Certificate, fetchImpl: typeof fetch = fetch): Promise<OcspResponse> {
+  const nonce = randomBytes(16);
+  const request = createOcspRequest(certificate, issuer, nonce);
+  let response: Response;
+  try {
+    response = await fetchImpl(url, { method: 'POST', headers: { 'content-type': OCSP_REQUEST_TYPE }, body: request as BodyInit, cache: 'no-store', credentials: 'omit' });
+  } catch (e) {
+    throw new Error(`The OCSP responder ${url} could not be reached (${(e as Error).message}).`);
+  }
+  if (!response.ok) throw new Error(`The OCSP responder ${url} answered HTTP ${response.status}.`);
+  const ocsp = OcspResponse.load(plain(new Uint8Array(await response.arrayBuffer())));
+  if (!ocsp.nonce || !equal(ocsp.nonce, Der.octetString(nonce))) throw new Error('The OCSP response does not echo the nonce of the request.');
+  if (!ocsp.find(certificate, issuer)) throw new Error('The OCSP response is not about the certificate asked for.');
+  return ocsp;
 }

@@ -2,9 +2,10 @@
  * Drives build/ua-signature.html in headless Chrome from a file:// URL: the synthetic signatures fail as untrusted, a
  * certificate added on the Certificates tab makes them valid (and stays after a reload), detached data is matched, a
  * tampered document is rejected; a key store opens (and a wrong password is refused), a document is signed and the
- * new signature verifies. With the real signatures and key on this machine, the PrivatBank .sig and the «Дія» .asice
- * verify against the bundled roots, and the bank's key signs — with a real time-stamp only when UA_ONLINE=1. The page
- * may reach PrivatBank's time-stamping server and nothing else. No exceptions, console errors or CSP violations allowed.
+ * new signature verifies. The online revocation check is ticked by default and the choice survives a reload. With the
+ * real signatures and key on this machine, the PrivatBank .sig and the «Дія» .asice verify against the bundled roots, and
+ * the bank's key signs — with a real time-stamp and the signer's online status only when UA_ONLINE=1. The page may
+ * reach PrivatBank's servers and nothing else. No exceptions, console errors or CSP violations allowed.
  *
  * Needs `npm run build` first and a local Chrome (or CHROME=/path/to/chrome); skipped without Chrome.
  * `--shots DIR` saves screenshots of the screens.
@@ -82,6 +83,14 @@ try {
   await until('document.documentElement.dataset.ready === "true"');
   check('the added root stays after a reload', await evaluate('document.querySelectorAll("#trust-roots li").length'), 6);
 
+  // The online revocation check: ticked by default, the choice remembered.
+  check('the online revocation check is ticked by default', await evaluate('document.getElementById("verify-online").checked'), true);
+  await evaluate('document.getElementById("verify-online").click()');
+  await browser.navigate(pathToFileURL(APP).href);
+  await until('document.documentElement.dataset.ready === "true"');
+  check('unticked, it stays so after a reload', await evaluate('document.getElementById("verify-online").checked'), false);
+  await evaluate('document.getElementById("verify-online").click()');
+
   for (const file of ['cades-enveloped.p7s', 'asic-e.asice', 'asic-s.asics']) {
     check(`${file} verifies`, await verify(join(SYNTHETIC, file)), ['ok', []]);
   }
@@ -123,8 +132,14 @@ try {
   if (!hasPrivate) {
     console.log('app: no real signatures on this machine — skipped');
   } else {
+    const online = process.env.UA_ONLINE === '1';
+    // Without UA_ONLINE the test stays off the network: the online check is unticked (for this page load only).
+    if (!online) await evaluate('document.getElementById("verify-online").checked = false');
     const [pbVerdict, pbFailed] = await verify(join(PRIVATE, 'pb', 'valid', 'tosign.txt.sig'));
     check('PrivatBank .sig: valid, warnings only for revocation', [pbVerdict, pbFailed], ['warn', []]);
+    const signerRevocation = await evaluate(`[...document.querySelectorAll('#verify-result .signature details.all-checks .checks li')].filter((li) => /^signer: revocation of /.test(li.querySelector('.name').textContent)).map((li) => li.className + ' ' + li.querySelector('.details').textContent.replace(/ of '.*/, ''))[0]`);
+    check(`PrivatBank .sig: the signer's status ${online ? 'online' : 'not checked'}`, signerRevocation, online ? 'passed good, online response' : 'warning no OCSP response in the signature; the current status was not checked online');
+    if (online) check('PrivatBank .sig: no notice of a failed online check', await evaluate('document.querySelector("#verify-result .notice strong")?.textContent ?? null'), null);
     check('PrivatBank .sig: the time-stamp is verified', await evaluate('[...document.querySelectorAll("#verify-result .facts dt")].some((dt) => dt.textContent === "Time-stamp")'), true);
     check('PrivatBank .sig: the document can be saved', await evaluate('[...document.querySelectorAll("#verify-result .files button")].map((b) => b.textContent.replace(/ \\(.*/, ""))'), ['Save tosign.txt']);
     await shot('verify-privatbank', 1100, 1300);
@@ -140,7 +155,6 @@ try {
       await evaluate(`document.getElementById("key-password").value = ${JSON.stringify(password)}; document.getElementById("key-open").click()`);
       await until('document.querySelector("#key-info .banner--ok") !== null');
       check('PrivatBank key: the time-stamp is offered and ticked', await evaluate('[document.getElementById("sign-timestamp").disabled, document.getElementById("sign-timestamp").checked, document.getElementById("sign-timestamp-label").textContent.includes("https://acsk.privatbank.ua/services/tsp/")]'), [false, true, true]);
-      const online = process.env.UA_ONLINE === '1';
       // Without UA_ONLINE the test stays off the network: the time-stamp is unticked.
       if (!online) await evaluate('document.getElementById("sign-timestamp").checked = false');
       await evaluate('document.getElementById("sign-result").replaceChildren(); document.getElementById("sign-run").click()');

@@ -1,6 +1,6 @@
 import { equal } from '../bytes';
 import type { Certificate } from './certificate';
-import type { OcspResponse, OcspSingleResponse } from './ocsp';
+import type { OcspResponse } from './ocsp';
 import { Oid } from './oids';
 import type { ValidationOptions, VerificationReport } from './report';
 import { formatUtc } from './tsp';
@@ -10,8 +10,9 @@ import { formatUtc } from './tsp';
  * next, is valid at the validation time, CA certificates are CAs, the path ends at a trust anchor, and every certificate
  * below the top has a "good" OCSP response from a responder of its issuer.
  *
- * Offline only: what the signature does not carry (OCSP responses, missing CA certificates) is not fetched. A missing
- * revocation status is a warning, as in the C# verifier without --online.
+ * Nothing is fetched here: what the signature does not carry comes from the options — CA certificates kept locally, and
+ * OCSP responses the caller obtained online. A missing revocation status is a warning, as in the C# verifier without
+ * --online.
  */
 
 const MAX_DEPTH = 10;
@@ -95,33 +96,42 @@ export function validatePath(
   }
 
   // Revocation of every certificate below the top of the path (the top has no issuer to ask).
-  for (let i = 0; i + 1 < chain.length; i++) checkRevocation(chain[i]!, chain[i + 1]!, revocation, poolList, time, report, name);
+  for (let i = 0; i + 1 < chain.length; i++) checkRevocation(chain[i]!, chain[i + 1]!, revocation, options.onlineRevocation, poolList, time, report, name);
   return chain;
 }
 
+/**
+ * The status of `certificate` from a response the signature carries, else from one obtained online. Either is checked
+ * the same way: signed by the issuer or by a responder the issuer certified for OCSP. An online response tells the
+ * status now; a revocation after the validation time still leaves the signature valid.
+ */
 function checkRevocation(
   certificate: Certificate,
   issuer: Certificate,
-  revocation: readonly OcspResponse[],
+  embedded: readonly OcspResponse[],
+  online: readonly OcspResponse[] | undefined,
   pool: readonly Certificate[],
   time: Date,
   report: VerificationReport,
   name: string,
 ): void {
   const check = `${name}: revocation of '${certificate.shortName}'`;
-  let found: { response: OcspResponse; single: OcspSingleResponse } | null = null;
-  for (const response of revocation) {
-    const single = response.find(certificate, issuer);
-    if (single) {
-      found = { response, single };
-      break;
+  const find = (responses: readonly OcspResponse[], isOnline: boolean) => {
+    for (const response of responses) {
+      const single = response.find(certificate, issuer);
+      if (single) return { response, single, isOnline };
     }
-  }
+    return null;
+  };
+  const found = find(embedded, false) ?? find(online ?? [], true);
   if (!found) {
-    report.warn(check, 'no OCSP response in the signature; an online status check is not done here');
+    report.warn(
+      check,
+      online ? 'no OCSP response in the signature, and none from the online check' : 'no OCSP response in the signature; the current status was not checked online',
+    );
     return;
   }
-  const { response, single } = found;
+  const { response, single, isOnline } = found;
   const responder = response.findResponder([...pool, issuer]);
   if (!responder) {
     report.fail(check, "the OCSP responder's certificate is not available");
@@ -137,8 +147,8 @@ function checkRevocation(
     return;
   }
 
-  report.revocations.push({ path: name, certificate, response, status: single, responder });
-  const at = `embedded response of '${responder.shortName}' at ${formatUtc(single.thisUpdate).slice(0, 16)} UTC`;
+  report.revocations.push({ path: name, certificate, response, status: single, responder, online: isOnline });
+  const at = `${isOnline ? 'online' : 'embedded'} response of '${responder.shortName}' at ${formatUtc(single.thisUpdate).slice(0, 16)} UTC`;
   if (single.status === 'good') report.pass(check, `good, ${at}`);
   else if (single.status === 'revoked' && single.revocationTime && single.revocationTime > time) {
     report.pass(check, `revoked on ${formatUtc(single.revocationTime).slice(0, 16)} UTC, after the validation time; ${at}`);

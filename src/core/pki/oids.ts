@@ -66,6 +66,7 @@ export const Oid = {
 
   // OCSP (RFC 6960)
   OcspBasic: '1.3.6.1.5.5.7.48.1.1',
+  OcspNonce: '1.3.6.1.5.5.7.48.1.2',
 
   /** The Sun JKS key protector. */
   JksKeyProtector: '1.3.6.1.4.1.42.2.17.1.1',

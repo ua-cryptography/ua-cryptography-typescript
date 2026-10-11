@@ -2,9 +2,11 @@ import { Oid } from '../core/pki/oids';
 import { signCades, signCadesT } from '../core/pki/cades-signer';
 import { requestTimeStamp } from '../core/pki/tsp';
 import { loadJks, openSigningKey, type SigningKey, WrongPasswordError } from '../core/pki/jks';
+import { requestOcsp } from '../core/pki/ocsp';
+import type { VerificationResult } from '../core/pki/report';
 import { verifySignature } from '../core/pki/verifier';
-import { busy, failure, renderResult, verdict } from './report-view';
-import { timeStampUrl } from './timestamp';
+import { busy, failure, notice, renderResult, verdict } from './report-view';
+import { ocspUrl, PRIVATBANK_ORIGIN, timeStampUrl } from './network';
 import { parseCertificateFiles, TrustStore, type Role } from './trust';
 import { byId, download, errorText, fileDrop, formatDay, h, nextFrame, readFile } from './ui';
 
@@ -31,6 +33,48 @@ window.addEventListener('drop', (event) => event.preventDefault());
 
 const SIGNATURE_EXTENSIONS = /\.(sig|p7s|p7m|asice|sce|asics|scs|xml)$/i;
 const verifyResult = byId('verify-result');
+
+// The online revocation check is on unless the user turned it off; the choice is remembered in this browser.
+const ONLINE_KEY = 'ua-signature.online-revocation';
+const onlineBox = byId<HTMLInputElement>('verify-online');
+try {
+  onlineBox.checked = localStorage.getItem(ONLINE_KEY) !== 'off';
+} catch {
+  // Storage may be unavailable: the default stays.
+}
+onlineBox.addEventListener('change', () => {
+  try {
+    localStorage.setItem(ONLINE_KEY, onlineBox.checked ? 'on' : 'off');
+  } catch {
+    // The choice holds for this session only.
+  }
+});
+
+/**
+ * Verifies offline; then, when the online check is on, asks PrivatBank's OCSP responder about the certificates whose
+ * status the signature does not carry and that name that responder, and verifies again with the answers. Requests that
+ * fail are returned as messages: those certificates keep their warning.
+ */
+async function verifyWithOnlineStatus(
+  signature: Uint8Array,
+  detached: (name: string | null) => Uint8Array | null,
+  progress: (text: string) => Promise<void>,
+): Promise<{ result: VerificationResult; failures: string[] }> {
+  const options = trust.options();
+  const offline = await verifySignature(signature, detached, options);
+  if (!onlineBox.checked) return { result: offline, failures: [] };
+  const targets = offline.unresolvedRevocations.flatMap(({ certificate, issuer }) => {
+    const url = ocspUrl(certificate);
+    return url ? [{ certificate, issuer, url }] : [];
+  });
+  if (targets.length === 0) return { result: offline, failures: [] };
+  await progress(`Asking ${new URL(PRIVATBANK_ORIGIN).host} for the revocation status…`);
+  const settled = await Promise.allSettled(targets.map((t) => requestOcsp(t.url, t.certificate, t.issuer)));
+  const responses = settled.flatMap((s) => (s.status === 'fulfilled' ? [s.value] : []));
+  const failures = settled.flatMap((s, i) => (s.status === 'rejected' ? [`'${targets[i]!.certificate.shortName}': ${errorText(s.reason)}`] : []));
+  const result = await verifySignature(signature, detached, { ...options, onlineRevocation: responses });
+  return { result, failures };
+}
 
 /**
  * The signature among the dropped files — by its extension, else the only file — and the rest as the data of a detached
@@ -63,10 +107,14 @@ async function verifyFiles(files: File[]): Promise<void> {
     const base = signature.name.replace(/\.(p7s|sig|p7m)$/i, '');
     const detached = (name: string | null): Uint8Array | null => (name === null ? (data.get(base) ?? single) : (data.get(name) ?? null));
     const started = performance.now();
-    const result = await verifySignature(signature.bytes, detached, trust.options());
+    const { result, failures } = await verifyWithOnlineStatus(signature.bytes, detached, async (text) => {
+      verifyResult.replaceChildren(busy(text));
+      await nextFrame();
+    });
     const view = renderResult(result, signature.name, contentName(signature.name));
     view.dataset.verdict = verdict(result);
     view.dataset.ms = String(Math.round(performance.now() - started));
+    if (failures.length > 0) view.prepend(notice('The online revocation check failed', failures.join(' ')));
     verifyResult.replaceChildren(view);
   } catch (error) {
     verifyResult.replaceChildren(failure('The file could not be read as a signature', errorText(error)));

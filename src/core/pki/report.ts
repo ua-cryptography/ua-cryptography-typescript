@@ -28,6 +28,8 @@ export type RevocationStatus = {
   readonly response: OcspResponse;
   readonly status: OcspSingleResponse;
   readonly responder: Certificate;
+  /** True when the response was obtained online for this verification, false when the signature carries it. */
+  readonly online: boolean;
 };
 
 export class VerificationReport {
@@ -103,14 +105,37 @@ export class VerificationResult {
   get isValid(): boolean {
     return this.signatures.length > 0 && this.signatures.every((s) => s.isValid);
   }
+
+  /**
+   * The certificates on the paths whose status no authorized OCSP response established, each with its issuer (the next
+   * certificate on the path) and once: what an online check could ask about.
+   */
+  get unresolvedRevocations(): Array<{ readonly certificate: Certificate; readonly issuer: Certificate }> {
+    const found = new Map<string, { certificate: Certificate; issuer: Certificate }>();
+    for (const report of this.signatures) {
+      for (const path of report.paths) {
+        path.certificates.forEach((certificate, i) => {
+          const issuer = path.certificates[i + 1];
+          if (!issuer || found.has(certificate.id)) return;
+          if (!report.revocations.some((r) => r.certificate.equals(certificate))) found.set(certificate.id, { certificate, issuer });
+        });
+      }
+    }
+    return [...found.values()];
+  }
 }
 
-/** What the verifier may rely on besides the signature itself. Everything is offline. */
+/** What the verifier may rely on besides the signature itself. The verifier fetches nothing; online data comes in here. */
 export type ValidationOptions = {
   /** Trusted roots. When empty, the chain is built but trust is reported as a warning. */
   readonly trustAnchors: readonly Certificate[];
   /** Certificates that may complete chains and find time-stamping services (CA bundles kept locally). */
   readonly extraCertificates: readonly Certificate[];
+  /**
+   * OCSP responses the caller obtained online for this verification (the page asks PrivatBank's responder), used for
+   * certificates the signature carries no response about. Undefined when no online check was made.
+   */
+  readonly onlineRevocation?: readonly OcspResponse[];
   /** "Now", when a signature carries no time (tests). */
   readonly now?: Date;
 };

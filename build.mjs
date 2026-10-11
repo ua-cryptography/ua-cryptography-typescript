@@ -3,9 +3,10 @@
  * certificates (assets/certificates) are inlined, so the page opens from a file:// URL and works offline, with no
  * sibling files.
  *
- * The page's Content-Security-Policy allows one kind of request only — a time-stamp from PrivatBank's TSP server when a
- * signature is made (connect-src https://acsk.privatbank.ua) — and its only script is pinned by hash: the page shows
- * names from certificates and files, and a hash keeps any markup that might slip into them from running.
+ * The page's Content-Security-Policy allows requests to one origin only, PrivatBank's (connect-src
+ * https://acsk.privatbank.ua): a time-stamp when a signature is made, a certificate's status when one is verified. Its
+ * only script is pinned by hash: the page shows names from certificates and files, and a hash keeps any markup that
+ * might slip into them from running.
  *
  * The version is package.json's and nowhere else; a build of anything but the commit tagged v<version> shows the commit
  * too (0.1.0+1a2b3c4).
@@ -96,7 +97,7 @@ function assertSelfContained(html) {
     [/url\(\s*["']?https?:/i, 'url(http…)'],
   ];
   for (const [pattern, name] of offenders) if (pattern.test(html)) throw new Error(`An external reference is left in the file: ${name}`);
-  // The one network exception: PrivatBank's time-stamping service (src/app/timestamp.ts). Nothing else may be added here
+  // The one network exception: PrivatBank's TSP and OCSP servers (src/app/network.ts). Nothing else may be added here
   // without a decision of the owner.
   const connect = /http-equiv="Content-Security-Policy" content="[^"]*connect-src ([^;"]*)/.exec(html)?.[1]?.trim();
   if (connect !== 'https://acsk.privatbank.ua') throw new Error(`The Content-Security-Policy must have connect-src https://acsk.privatbank.ua and nothing else, not ${connect}`);

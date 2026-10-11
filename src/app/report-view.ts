@@ -94,7 +94,7 @@ export function renderResult(result: VerificationResult, fileName: string, conte
     v === 'fail'
       ? 'At least one check failed — see the marked items below.'
       : v === 'warn'
-        ? 'Some things could not be established offline (usually the current revocation status); see "Attention".'
+        ? 'Some things could not be established (usually the revocation status of a certificate); see "Attention".'
         : 'Every check passed.';
   const root = h('div', { class: 'result' });
   root.append(
@@ -123,6 +123,11 @@ export function renderResult(result: VerificationResult, fileName: string, conte
 
 export function busy(text: string): HTMLElement {
   return h('div', { class: 'banner banner--busy' }, h('span', { class: 'icon' }, '…'), h('div', null, h('strong', null, text)));
+}
+
+/** A warning that does not replace the result: something around it did not work out. */
+export function notice(title: string, message: string): HTMLElement {
+  return h('div', { class: 'banner banner--warn notice' }, h('span', { class: 'icon' }, '!'), h('div', null, h('strong', null, title), h('p', null, message)));
 }
 
 export function failure(title: string, message: string): HTMLElement {
